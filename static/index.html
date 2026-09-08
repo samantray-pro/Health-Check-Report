@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Health Checkup Tracker | Local & Private</title>
+  <link rel="stylesheet" href="/css/style.css?v=2.3" />
+  <!-- Chart.js for Longitudinal Medical Trend Visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- Local Network LAN Announcement Banner -->
+  <div class="lan-banner" id="lan-banner">
+    <div class="lan-banner-content">
+      <span>🔒 <strong>Local-Only & Private:</strong> Accessible from any phone or PC on your Wi-Fi:</span>
+      <span class="badge-lan" id="lan-ip-display">Detecting...</span>
+    </div>
+    <button class="btn-copy-lan" id="btn-copy-lan" onclick="copyLanUrl()">Copy URL</button>
+  </div>
+
+  <div class="app-container">
+
+    <!-- Header & Profile Selector -->
+    <header class="app-header">
+      <div class="logo-group">
+        <div class="logo-icon">🩺</div>
+        <div class="logo-title">
+          <h1>Health Checkup Tracker</h1>
+          <div class="logo-subtitle">Local &amp; Privacy-First Medical Analytics</div>
+        </div>
+      </div>
+
+      <div class="profile-bar">
+        <div class="profile-select-wrapper">
+          <select id="profile-select" class="profile-select" title="Select Persona Profile">
+            <!-- Populated dynamically -->
+          </select>
+          <span class="select-arrow">▼</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="openNewProfileModal()">+ New Profile</button>
+        <button class="btn btn-secondary btn-sm" onclick="openModal('ai-settings-modal')" style="background-color: var(--card-bg); border-color: var(--border-color); color: var(--text-color);">🤖 AI Config</button>
+      </div>
+    </header>
+
+    <!-- Empty State if no profiles exist -->
+    <div id="no-profiles-state" class="empty-state" style="display: none;">
+      <div class="empty-state-icon">👤</div>
+      <h2>Welcome to Health Checkup Tracker</h2>
+      <p>Create your first family member or persona profile to start tracking medical lab reports.</p>
+      <button class="btn btn-primary" onclick="openNewProfileModal()" style="margin-top: 1rem;">+ Create Persona Profile</button>
+    </div>
+
+    <!-- Main Dashboard Content -->
+    <main id="main-dashboard-content">
+
+      <!-- Active Profile Banner -->
+      <section class="active-profile-card">
+        <div class="profile-info">
+          <div class="profile-avatar" id="active-profile-avatar">P</div>
+          <div class="profile-meta">
+            <h2 id="active-profile-name">Patient Name</h2>
+            <div class="profile-tag" id="active-profile-age-gender">45 Years • Male</div>
+            <div class="profile-issues" id="active-profile-issues">Monitored conditions: None</div>
+          </div>
+        </div>
+
+        <div class="action-buttons">
+          <button class="btn btn-primary" onclick="openUploadModal()">
+            📄 Upload Lab Report (PDF / Image)
+          </button>
+          <button class="btn btn-secondary" onclick="exportActiveProfileCsv()" title="Download entire history as CSV">
+            📥 Export to CSV
+          </button>
+        </div>
+      </section>
+
+      <!-- Stats Summary Cards -->
+      <section class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Unique Tests Tracked</div>
+          <div class="stat-value" id="stat-unique-tests">--</div>
+          <div class="stat-desc">Biomarkers monitored</div>
+        </div>
+        <div class="stat-card teal-card">
+          <div class="stat-label">Total Readings Logged</div>
+          <div class="stat-value" id="stat-total-readings">--</div>
+          <div class="stat-desc">Historical data points</div>
+        </div>
+        <div class="stat-card alert-card">
+          <div class="stat-label">Abnormal / Elevated</div>
+          <div class="stat-value" id="stat-abnormal-flags">--</div>
+          <div class="stat-desc">Out of normal range</div>
+        </div>
+        <div class="stat-card success-card">
+          <div class="stat-label">Last Checkup Date</div>
+          <div class="stat-value" id="stat-last-checkup" style="font-size: 1.35rem; margin-top: 0.6rem;">--</div>
+          <div class="stat-desc">Most recent report recorded</div>
+        </div>
+      </section>
+
+      <!-- Section Title -->
+      <div class="section-header">
+        <div>
+          <div class="section-title">
+            <span>📊</span> Repeated Test Comparison &amp; Progress
+          </div>
+          <div class="section-subtitle">Comparing consecutive checkups over time (showing last 5 readings)</div>
+        </div>
+      </div>
+
+      <!-- Category & Organ Panel Tabs Bar -->
+      <div class="category-tabs-container" id="category-tabs-container">
+        <div class="category-tabs-scroll" id="category-tabs-scroll">
+          <!-- Dynamically populated category pills -->
+        </div>
+      </div>
+
+      <!-- Controls & Filter Toolbar -->
+      <div class="test-controls-bar">
+        <div class="controls-left">
+          <!-- Search Input -->
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="test-search-input" class="search-input" placeholder="Search tests (e.g. Glucose, HbA1c, BUN)..." />
+            <button id="search-clear-btn" class="search-clear" style="display:none;" title="Clear search">✕</button>
+          </div>
+
+          <!-- Status Filter Buttons -->
+          <div class="filter-pills-group">
+            <button class="filter-pill active" data-filter="all">All <span class="filter-count" id="count-all">0</span></button>
+            <button class="filter-pill pill-warn" data-filter="abnormal">⚠️ Attention Needed <span class="filter-count" id="count-abnormal">0</span></button>
+            <button class="filter-pill pill-good" data-filter="normal">✓ Normal <span class="filter-count" id="count-normal">0</span></button>
+            <button class="filter-pill pill-frequent" data-filter="frequent">🔄 Frequently Tracked <span class="filter-count" id="count-frequent">0</span></button>
+          </div>
+        </div>
+
+        <div class="controls-right">
+          <!-- Sort Dropdown -->
+          <div class="sort-wrapper">
+            <select id="test-sort-select" class="sort-select" title="Sort tests">
+              <option value="recent">Sort: Most Recent</option>
+              <option value="abnormal_first">Sort: Attention First</option>
+              <option value="name_asc">Sort: Name (A to Z)</option>
+              <option value="name_desc">Sort: Name (Z to A)</option>
+            </select>
+            <span class="select-arrow">▼</span>
+          </div>
+
+          <!-- View Mode Toggle (Grid vs Linear) -->
+          <div class="view-toggle">
+            <button id="btn-view-grid" class="view-toggle-btn active" title="Card Grid View">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+              Grid
+            </button>
+            <button id="btn-view-linear" class="view-toggle-btn" title="Linear Row View">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+              Linear
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Test Container (Switches dynamically between .tests-grid and .tests-linear-container) -->
+      <section class="tests-grid" id="tests-grid">
+        <!-- Dynamically rendered test cards with sparklines -->
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- MODAL 1: Upload & Smart OCR Verification Modal -->
+  <div class="modal-overlay" id="upload-modal">
+    <div class="modal-box" style="max-width: 780px;">
+      <div class="modal-header">
+        <div class="modal-title">Upload &amp; Extract Lab Report</div>
+        <button class="btn-close" onclick="closeModal('upload-modal')">&times;</button>
+      </div>
+
+      <!-- Step 1: File Selection -->
+      <div id="ocr-step-upload">
+        <div class="dropzone" id="dropzone">
+          <div class="dropzone-icon">📥</div>
+          <div class="dropzone-text">Click or drag &amp; drop your lab report here</div>
+          <div class="dropzone-hint">Supports Digital PDFs, Scanned Photos (JPG, PNG, WebP)</div>
+          <input type="file" id="upload-file-input" accept=".pdf,.png,.jpg,.jpeg,.bmp,.webp" style="display: none;" />
+        </div>
+
+        <div id="upload-spinner" style="display: none; text-align: center; padding: 2rem;">
+          <div class="css-spinner"></div>
+          <div style="color: var(--primary); font-weight: 600; margin-top: 1rem;">Extracting medical test data...</div>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Extracting test names, readings, units, and reference intervals</div>
+        </div>
+
+      </div>
+
+      <!-- Step 2: Verification & Review Drawer -->
+      <div id="ocr-step-verify" style="display: none;">
+        <div style="background: rgba(2, 132, 199, 0.1); border: 1px solid rgba(2, 132, 199, 0.3); padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Document: <strong id="ocr-filename" style="color:#fff;">Report.pdf</strong></div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <label style="font-size: 0.8rem; color: #cbd5e1; font-weight: 600;">Test Date:</label>
+            <input type="date" id="ocr-test-date" class="table-input" style="width: 140px;" />
+          </div>
+        </div>
+
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+          Review and verify extracted readings below before saving. You can edit values, add new rows, or remove incorrect entries:
+        </p>
+
+        <div class="table-wrapper">
+          <table class="verification-table">
+            <thead>
+              <tr>
+                <th>Test Name</th>
+                <th>Value</th>
+                <th>Unit</th>
+                <th>Reference</th>
+                <th style="width: 40px;"></th>
+              </tr>
+            </thead>
+            <tbody id="ocr-verification-body">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addVerificationRow()">
+            + Add Another Test
+          </button>
+          <div style="display: flex; gap: 0.75rem;">
+            <button type="button" class="btn btn-secondary" onclick="openUploadModal()">Back</button>
+            <button type="button" class="btn btn-primary" onclick="confirmAndSaveReport()">Confirm &amp; Save Records</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: Detailed Test Trend Chart & History Modal -->
+  <div class="modal-overlay" id="test-detail-modal">
+    <div class="modal-box" style="max-width: 800px;">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="detail-test-name">Test Name</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;" id="detail-test-meta">Unit &amp; Reference</div>
+        </div>
+        <button class="btn-close" onclick="closeModal('test-detail-modal')">&times;</button>
+      </div>
+
+      <!-- Full Historical Curve -->
+      <div class="detail-chart-wrapper">
+        <canvas id="detail-chart-canvas"></canvas>
+      </div>
+
+      <!-- Chronological History Table -->
+      <div class="section-title" style="font-size: 1rem; margin-top: 1.5rem; margin-bottom: 0.75rem;">
+        <span>📜</span> Chronological Records
+      </div>
+      <div class="table-wrapper">
+        <table class="verification-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Value</th>
+              <th>Change</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="detail-table-body">
+            <!-- Populated dynamically -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: Create New Persona Profile Modal -->
+  <div class="modal-overlay" id="profile-modal">
+    <div class="modal-box" style="max-width: 480px;">
+      <div class="modal-header">
+        <div class="modal-title">+ Add Persona Profile</div>
+        <button class="btn-close" onclick="closeModal('profile-modal')">&times;</button>
+      </div>
+
+      <form id="new-profile-form">
+        <div class="form-group">
+          <label class="form-label" for="profile-name-input">Full Name *</label>
+          <input type="text" id="profile-name-input" class="form-control" placeholder="e.g. Ramesh Patel" required />
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group">
+            <label class="form-label" for="profile-age-input">Age *</label>
+            <input type="number" id="profile-age-input" class="form-control" placeholder="e.g. 46" min="0" max="130" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="profile-gender-input">Biological Sex *</label>
+            <select id="profile-gender-input" class="form-control" required>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="profile-issues-input">Existing Health Conditions (Optional)</label>
+          <input type="text" id="profile-issues-input" class="form-control" placeholder="e.g. Diabetes, Hypertension, Thyroid" />
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('profile-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Profile</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL 4: AI Settings Modal -->
+  <div class="modal-overlay" id="ai-settings-modal">
+    <div class="modal-box" style="max-width: 480px;">
+      <div class="modal-header">
+        <div class="modal-title">🤖 AI Assistant Settings</div>
+        <button class="btn-close" onclick="closeModal('ai-settings-modal')">&times;</button>
+      </div>
+
+      <form id="ai-settings-form">
+        <div class="form-group">
+          <label class="form-label" for="ai-provider">AI Provider</label>
+          <select id="ai-provider" class="form-control" required>
+            <option value="local">Local Offline (Ollama / LM Studio)</option>
+            <option value="gemini">Google Gemini (Cloud)</option>
+          </select>
+          <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 4px;">Choose Local for 100% privacy, or Gemini for speed without local hardware.</div>
+        </div>
+
+        <div id="ai-gemini-config" style="display: none; margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+          <div class="form-group">
+            <label class="form-label" for="ai-gemini-key">Gemini API Key</label>
+            <input type="password" id="ai-gemini-key" class="form-control" placeholder="AIzaSy..." />
+            <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 4px;">Stored locally in your browser. <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: var(--primary-color);">Get a free key here</a>.</div>
+          </div>
+          <div class="form-group" style="margin-top: 0.75rem;">
+            <label class="form-label" for="ai-gemini-model">Gemini Model</label>
+            <select id="ai-gemini-model" class="form-control">
+              <option value="gemini-3.5-flash" selected>gemini-3.5-flash (Fast &amp; Recommended)</option>
+              <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (Ultra Lightweight)</option>
+              <option value="gemini-3.6-flash">gemini-3.6-flash</option>
+              <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="ai-local-config" style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+          <div class="form-group">
+            <label class="form-label" for="ai-local-url">Local API URL</label>
+            <input type="text" id="ai-local-url" class="form-control" value="http://localhost:11434" required />
+            <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 4px;">Default is http://localhost:11434 for Ollama.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ai-local-model">Local Model Name</label>
+            <input type="text" id="ai-local-model" class="form-control" value="phi3:3.8b" required />
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('ai-settings-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Settings</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- FLOATING CHAT WIDGET -->
+  <button id="chat-fab" class="chat-fab" onclick="toggleChatWidget()">
+    <span style="font-size: 1.5rem;">💬</span>
+  </button>
+
+  <div id="chat-widget" class="chat-widget">
+    <div class="chat-header">
+      <div>
+        <div style="font-weight: 600; color: white;">Health Assistant AI</div>
+        <div style="font-size: 0.75rem; opacity: 0.8;" id="chat-status"><span class="status-pulse-dot"></span>Ready</div>
+      </div>
+      <button class="chat-close" onclick="toggleChatWidget()">▼</button>
+    </div>
+    
+    <div id="chat-messages" class="chat-messages">
+      <div class="chat-message ai-message">
+        Hello! I am your AI Health Assistant. I have access to the current profile's recent blood work and trends. How can I help you analyze the data?
+      </div>
+    </div>
+    
+    <div class="chat-input-area">
+      <input type="text" id="chat-input" class="chat-input" placeholder="Ask about your lab results..." onkeypress="if(event.key === 'Enter') sendChatMessage()" />
+      <button class="chat-send-btn" onclick="sendChatMessage()">➤</button>
+    </div>
+  </div>
+
+  <script src="/js/app.js?v=2.3"></script>
+</body>
+</html>

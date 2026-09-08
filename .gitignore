@@ -1,0 +1,79 @@
+# ==========================================
+# Health Checkup Tracker - .gitignore
+# ==========================================
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# User Uploaded Medical Documents (Protect Patient Privacy)
+app/uploads/*
+!app/uploads/.gitkeep
+
+# Local User Databases & Private Backups
+*.local.db
+*.backup.db
+*.bak.db
+*.bak
+health_tracker_backup.db
+health_tracker.local.db
+
+# Temporary & Swap Files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+~$*
+.cache/
+
+# Test Files & Test Outputs
+tests/
+test/
+test_*
+*_test.*
+test_output/
+*.test.pdf
+1_test_report.pdf
+
+# Logs & Diagnostics
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
