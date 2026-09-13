@@ -386,6 +386,31 @@ def get_test_panel(test_name: str, category: str = None) -> str:
 
     return "General / Other"
 
+def resolve_biomarker_meta(test_name: str):
+    """Resolves a test name to its BIOMARKER_DICTIONARY metadata (exact match, then a
+    word-boundary fallback requiring the alias to cover at least half the name - same rule
+    _store_candidate uses, so a save/recalculate path can't relabel a compound name like
+    "Microalbumin-Albumin" under a short unrelated alias like "albumin" either)."""
+    if not test_name:
+        return None
+    norm_key = re.sub(r'[^a-z0-9]', '', test_name.lower())
+    if not norm_key:
+        return None
+
+    for alias, meta in BIOMARKER_DICTIONARY.items():
+        if norm_key == re.sub(r'[^a-z0-9]', '', alias):
+            return meta
+
+    core_norm_key = re.sub(r'[^a-z0-9]', '', re.sub(r'\([^)]*\)', '', test_name).lower()) or norm_key
+    for alias, meta in SORTED_BIOMARKER_ALIASES:
+        alias_norm = re.sub(r'[^a-z0-9]', '', alias)
+        if len(alias_norm) < 0.5 * len(core_norm_key):
+            continue
+        if re.search(r'\b' + re.escape(alias) + r'\b', test_name.lower()):
+            return meta
+
+    return None
+
 def determine_clinical_flag(value: float, ref_str: str, meta: dict = None) -> str:
     """Calculates whether value is NORMAL, HIGH, or LOW based on reference range."""
     if ref_str:

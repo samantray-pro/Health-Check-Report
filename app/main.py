@@ -1,5 +1,4 @@
 import io
-import re
 import csv
 import socket
 import logging
@@ -10,9 +9,9 @@ from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import get_db, init_db, seed_sample_data_if_empty
-from app.models import ProfileCreate, ConfirmReportPayload
+from app.models import ProfileCreate, ConfirmReportPayload, UpdateRecordPayload
 from app.ocr_engine import extract_text_from_file
-from app.parser import parse_lab_data, BIOMARKER_DICTIONARY, SORTED_BIOMARKER_ALIASES, get_test_category, get_test_panel, determine_clinical_flag
+from app.parser import parse_lab_data, BIOMARKER_DICTIONARY, get_test_category, get_test_panel, determine_clinical_flag, resolve_biomarker_meta
 from app import ai_router
 
 logger = logging.getLogger("health_tracker")
@@ -162,13 +161,7 @@ def confirm_records(profile_id: int, payload: ConfirmReportPayload):
         report_id = cur.lastrowid
 
         for r in payload.records:
-            dict_meta = None
-            norm_name = re.sub(r'[^a-z0-9]', '', r.test_name.lower())
-            for alias, meta in SORTED_BIOMARKER_ALIASES:
-                alias_norm = re.sub(r'[^a-z0-9]', '', alias)
-                if norm_name == alias_norm or re.search(r'\b' + re.escape(alias) + r'\b', r.test_name.lower()):
-                    dict_meta = meta
-                    break
+            dict_meta = resolve_biomarker_meta(r.test_name)
 
             computed_flag = determine_clinical_flag(r.value, r.reference_range or "", dict_meta)
             saved_flag = computed_flag if computed_flag in ("HIGH", "LOW", "NORMAL", "BORDERLINE") else (r.flag or "NORMAL")
@@ -346,6 +339,24 @@ def get_test_detail(profile_id: int, test_name: str = Query(...)):
             "test_name": test_name,
             "records": [dict(r) for r in records]
         }
+
+@app.put("/api/records/{record_id}")
+def update_record(record_id: int, payload: UpdateRecordPayload):
+    """Updates the value and/or date of a single saved test reading."""
+    with get_db() as db:
+        row = db.execute("SELECT test_name, reference_range FROM test_records WHERE id = ?", (record_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Record not found")
+
+        dict_meta = resolve_biomarker_meta(row["test_name"])
+        flag = determine_clinical_flag(payload.value, row["reference_range"] or "", dict_meta)
+
+        db.execute(
+            "UPDATE test_records SET value = ?, value_str = ?, test_date = ?, flag = ? WHERE id = ?",
+            (payload.value, payload.value_str or str(payload.value), payload.test_date, flag, record_id)
+        )
+        db.commit()
+        return {"status": "success", "flag": flag}
 
 @app.delete("/api/records/{record_id}")
 def delete_record(record_id: int):

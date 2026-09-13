@@ -23,3 +23,8 @@ class ConfirmReportPayload(BaseModel):
     filename: Optional[str] = "Manual Entry"
     file_path: Optional[str] = ""
     records: List[TestRecordItem]
+
+class UpdateRecordPayload(BaseModel):
+    value: float
+    value_str: Optional[str] = None
+    test_date: str

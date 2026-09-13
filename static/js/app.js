@@ -7,6 +7,7 @@ let currentProfiles = [];
 let detectedOcrPayload = null;
 let sparklineCharts = {};
 let detailedChartInstance = null;
+let currentDetailTestName = null;
 
 // View Mode & Filter State
 let rawCards = [];
@@ -597,6 +598,7 @@ async function openTestDetailModal(testName) {
 
     if (!records || records.length === 0) return;
 
+    currentDetailTestName = testName;
     const unit = records[0].unit || "";
     const refRange = records[0].reference_range || "N/A";
     document.getElementById("detail-test-meta").textContent = `Unit: ${unit} | Physiological Reference: ${refRange}`;
@@ -624,13 +626,18 @@ async function openTestDetailModal(testName) {
         else if (r.flag === "BORDERLINE") flagPill = `<span class="pill pill-borderline">Borderline</span>`;
 
         const tr = document.createElement("tr");
+        tr.dataset.recordId = r.id;
+        tr.dataset.testDate = r.test_date;
+        tr.dataset.valueStr = r.value_str || String(r.value);
+        tr.dataset.unit = unit;
         tr.innerHTML = `
-        <td><strong>${formatDate(r.test_date)}</strong></td>
-        <td><span style="font-size: 1.1rem; font-weight:700;">${escapeHtml(r.value_str || String(r.value))}</span> ${unit}</td>
+        <td class="cell-date"><strong>${formatDate(r.test_date)}</strong></td>
+        <td class="cell-value"><span style="font-size: 1.1rem; font-weight:700;">${escapeHtml(r.value_str || String(r.value))}</span> ${unit}</td>
         <td>${changeText}</td>
         <td>${flagPill}</td>
-        <td>
-          <button class="btn btn-secondary btn-sm" onclick="deleteRecord(${r.id}, '${testName}')" title="Delete entry">🗑️</button>
+        <td class="cell-actions">
+          <button class="btn btn-secondary btn-sm" onclick="startEditRecord(this)" title="Edit entry">✏️</button>
+          <button class="btn btn-secondary btn-sm" onclick="deleteRecord(this)" title="Delete entry">🗑️</button>
         </td>
       `;
         tbody.appendChild(tr);
@@ -703,16 +710,59 @@ function renderDetailedChart(records, testName, unit) {
   });
 }
 
-async function deleteRecord(recordId, testName) {
+async function deleteRecord(btn) {
   if (!confirm("Are you sure you want to delete this specific test reading?")) return;
+  const recordId = btn.closest("tr").dataset.recordId;
   try {
     const res = await fetch(`/api/records/${recordId}`, { method: "DELETE" });
     if (res.ok) {
-      openTestDetailModal(testName);
+      openTestDetailModal(currentDetailTestName);
       loadDashboard(activeProfileId);
     }
   } catch (err) {
     alert("Error deleting record: " + err);
+  }
+}
+
+function startEditRecord(btn) {
+  const tr = btn.closest("tr");
+  const { testDate, valueStr, unit } = tr.dataset;
+
+  tr.querySelector(".cell-date").innerHTML =
+    `<input type="date" class="table-input row-edit-date" value="${escapeHtml(testDate)}" style="width:150px;" />`;
+  tr.querySelector(".cell-value").innerHTML =
+    `<input type="text" class="table-input row-edit-value" value="${escapeHtml(valueStr)}" style="width:110px;" /> ${escapeHtml(unit)}`;
+  tr.querySelector(".cell-actions").innerHTML = `
+    <button class="btn btn-secondary btn-sm" onclick="saveEditedRecord(this)" title="Save changes">💾</button>
+    <button class="btn btn-secondary btn-sm" onclick="openTestDetailModal(currentDetailTestName)" title="Cancel">✕</button>
+  `;
+}
+
+async function saveEditedRecord(btn) {
+  const tr = btn.closest("tr");
+  const recordId = tr.dataset.recordId;
+  const testDate = tr.querySelector(".row-edit-date").value;
+  const rawValue = tr.querySelector(".row-edit-value").value.trim();
+
+  if (!testDate || !rawValue) {
+    alert("Date and value are required.");
+    return;
+  }
+
+  let numValue = parseFloat(rawValue.replace(/[^0-9.-]/g, ""));
+  if (isNaN(numValue)) numValue = 0.0;
+
+  try {
+    const res = await fetch(`/api/records/${recordId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: numValue, value_str: rawValue, test_date: testDate }),
+    });
+    if (!res.ok) throw new Error("Failed to save changes");
+    openTestDetailModal(currentDetailTestName);
+    loadDashboard(activeProfileId);
+  } catch (err) {
+    alert("Error saving record: " + err.message);
   }
 }
 
