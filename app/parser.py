@@ -168,6 +168,10 @@ BIOMARKER_DICTIONARY = {
     "free t4": {"name": "Free T4", "category": "Thyroid Profile", "unit": "pg/mL", "ref": "9.0 - 17.5", "min": 9.0, "max": 17.5},
     "free t3": {"name": "Free T3", "category": "Thyroid Profile", "unit": "pg/mL", "ref": "2.00 - 4.20", "min": 2.00, "max": 4.20},
 
+    # Prenatal / NIPT Screening
+    "free beta hcg": {"name": "Free Beta hCG", "category": "Hormones & Immunology", "unit": "ng/mL", "ref": "", "min": None, "max": None},
+    "fb-hcg": {"name": "Free Beta hCG", "category": "Hormones & Immunology", "unit": "ng/mL", "ref": "", "min": None, "max": None},
+
     # Immunology, Serology, Arthritis & Hormones
     "rheumatoid factor": {"name": "Rheumatoid Factor - Quantitative (RF)", "category": "Hormones & Immunology", "unit": "IU/mL", "ref": "0 - 14", "min": 0, "max": 14},
     "ra factor (qualitative)": {"name": "RA Factor (Qualitative)", "category": "Hormones & Immunology", "unit": "", "ref": "Negative", "min": None, "max": None},
@@ -216,6 +220,44 @@ QUAL_TOKENS = [
     "increase in monocytes", "Adequate", "Reduced",
     "Acidic", "Alkaline", "Neutral", "Normal", "Plasma"
 ]
+
+# Exact test-name matches that are always noise (legend labels, risk-summary rows,
+# stray single words from garbled multi-column/infographic layouts) rather than biomarkers.
+# Checked as a whole-string match against the candidate's cleaned name, so it only ever
+# rejects a name that IS one of these words/phrases outright, never a name containing one.
+BLACKLIST_EXACT_NAMES = {
+    'normal', 'abnormal', 'high', 'low', 'average', 'control', 'diabetes',
+    'impaired fasting', 'prediabetes', 'pre-diabetes', 'panic value', 'critical value',
+    'action suggested', 'target goals of', 'target goal', 'goal of therapy',
+    'therapeutic goals', 'therapeutic goal', 'excellent control', 'good control',
+    'fair control', 'poor control', 'borderline', 'desirable', 'optimal',
+    'concentration is', 'carrier proteins leaving', 'at risk', 'reference group',
+    'negative', 'positive', 'reactive', 'range', 'even', 'upto', 'up to', 'elevated',
+}
+
+# Common English function words. A genuine clinical test name is never built out of these
+# (they're all short compound nouns/abbreviations), so a candidate name containing one as a
+# standalone word is almost always a fragment of narrative/comment text that slipped past the
+# other filters. Only applied when the name has no dictionary match of its own to overrule it -
+# see the self-check script for the assertion that this never collides with a real biomarker name.
+STOPWORDS = {
+    'an', 'the', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'and', 'or',
+    'is', 'are', 'was', 'were', 'as', 'by', 'from', 'that', 'this', 'these', 'those',
+    'during', 'after', 'before', 'between', 'among', 'around', 'about', 'if',
+    'than', 'then', 'so', 'such', 'which', 'who', 'whom', 'because', 'due', 'per',
+}
+
+# A candidate name that, once normalized, IS one of these unit tokens rather than containing
+# one alongside a real name - a leftover fragment from a garbled multi-column value row.
+UNIT_ONLY_NORMALIZED_KEYS = {
+    'mgdl', 'gdl', 'ngml', 'pgml', 'ul', 'mmoll', 'meql', 'mgl', 'ratio', 'fl',
+    'hpf', 'lpf', 'cellscumm', 'miuml', 'uiuml', 'mmhr', 'umoll', 'mggm', 'ngdl',
+}
+
+# Qualitative tokens that only ever make sense for a serology/antibody-style result. Unlike
+# "Acidic"/"Alkaline" (legitimate alternate reporting for a numeric pH test) or "Clear"/"Hazy",
+# these can never be a genuine reading for a biomarker that has a numeric min/max range.
+SEROLOGY_ONLY_TOKENS = {'reactive', 'non reactive', 'non-reactive', 'positive', 'weakly positive'}
 
 def get_test_category(test_name: str) -> str:
     """Returns the standardized clinical organ/panel category for any biomarker."""
@@ -476,15 +518,6 @@ def parse_lab_data(text: str):
         re.I
     )
 
-    BLACKLIST_EXACT_NAMES = {
-        'normal', 'abnormal', 'high', 'low', 'average', 'control', 'diabetes',
-        'impaired fasting', 'prediabetes', 'pre-diabetes', 'panic value', 'critical value',
-        'action suggested', 'target goals of', 'target goal', 'goal of therapy',
-        'therapeutic goals', 'therapeutic goal', 'excellent control', 'good control',
-        'fair control', 'poor control', 'borderline', 'desirable', 'optimal',
-        'concentration is', 'carrier proteins leaving', 'at risk', 'reference group'
-    }
-
     lines = text.splitlines()
 
     # Detect if report uses star prefix for test rows (Star Health format)
@@ -540,6 +573,11 @@ def parse_lab_data(text: str):
         else:
             line_content = clean_l
 
+        # Rejoin a decimal value's trailing digit(s) when a PDF kerning glitch inserted a
+        # stray space mid-number right before the unit (e.g. "106.0 0 mg/dL" -> "106.00 mg/dL");
+        # otherwise Pattern B below matches only the stray "0" as the value.
+        line_content = re.sub(r'(\b\d+\.\d)\s+(\d+)\s+([a-zA-Z%])', r'\1\2 \3', line_content)
+
         # Normalize spacing inside units
         norm_line = re.sub(r'(\b\d+\.?\d*)\s*(mg|g)\s*/\s*(dl|dL)', r'\1 \2/dL', line_content)
         norm_line = re.sub(r'(\b\d+\.?\d*)\s*(cells)\s*/\s*(cumm|cu\.mm)', r'\1 cells/cumm', norm_line)
@@ -573,6 +611,17 @@ def parse_lab_data(text: str):
             clean_name = re.sub(r'[\:\,\-\–\>\<\=]+$', '', clean_name).strip()
             clean_name = re.sub(r'\s+\d+(?:\.\d+)?$', '', clean_name).strip()
 
+            # A test name left with an unmatched opening paren wrapped onto the next physical
+            # line (e.g. "PAPP-A (Pregnancy Associated Plasma" / "Protein)"). Reattach the
+            # short trailing fragment, but only when it can't be anything else: no digits (a
+            # genuine continuation of a name, not a value row) and not metadata/comment/section text.
+            if clean_name.count('(') > clean_name.count(')') and i + 1 < len(lines):
+                nxt = lines[i + 1].strip()
+                if (nxt and len(nxt) <= 25 and not re.search(r'\d', nxt)
+                        and not any(re.search(pat, nxt, re.I) for pat in METADATA_LINE_PATTERNS)
+                        and not COMMENT_START_REGEX.search(nxt) and not SECTION_RESET_REGEX.search(nxt)):
+                    clean_name = f"{clean_name} {nxt}"
+
             lower_name = clean_name.lower()
 
             # Filter out narrative sentences and explanatory bullets
@@ -585,15 +634,14 @@ def parse_lab_data(text: str):
 
             if len(clean_name) >= 2 and len(clean_name) <= 60 and not any(p in clean_name for p in [';', '!', '?', '=']):
                 if not any(sw in f" {lower_name} " for sw in [' is ', ' are ', ' was ', ' were ', ' should ', ' may ', ' because ', ' reflects ']):
-                    if lower_name not in BLACKLIST_EXACT_NAMES:
-                        try:
-                            val_num = float(re.sub(r'[<>=]', '', val_str))
-                            ref_match = re.search(r'([<>]?=?\s*\d+(?:\.\d+)?\s*(?:[-–]\s*\d+(?:\.\d+)?)?|<=?\s*\d+(?:\.\d+)?|>=?\s*\d+(?:\.\d+)?)', after_part)
-                            ref_str = ref_match.group(1).strip() if ref_match else ''
-                            _store_candidate(candidates, clean_name, val_num, val_str, unit_str, ref_str)
-                            continue
-                        except ValueError:
-                            pass
+                    try:
+                        val_num = float(re.sub(r'[<>=]', '', val_str))
+                        ref_match = re.search(r'([<>]?=?\s*\d+(?:\.\d+)?\s*(?:[-–]\s*\d+(?:\.\d+)?)?|<=?\s*\d+(?:\.\d+)?|>=?\s*\d+(?:\.\d+)?)', after_part)
+                        ref_str = ref_match.group(1).strip() if ref_match else ''
+                        _store_candidate(candidates, clean_name, val_num, val_str, unit_str, ref_str)
+                        continue
+                    except ValueError:
+                        pass
 
         # 3. Pattern C: Microscopic Range (e.g. '1 - 2 /HPF')
         micro_m = re.search(r'(\d+\s*[-–]\s*\d+)\s*(/HPF|/hpf|/LPF|/lpf)', norm_line)
@@ -644,10 +692,14 @@ def parse_lab_data(text: str):
 
             if re.search(r'\b(ratio|inr|isi|specific\s+gravity|urine\s+albumin|urine\s+creatinine)\b', lower_tp):
                 if not any(meta_k in lower_tp for meta_k in ['visit', 'collection', 'date', 'barcode', 'order', 'patient', 'customer']):
-                    ref_match = re.search(r'([<>]?=?\s*\d+(?:\.\d+)?\s*(?:[-–]\s*\d+(?:\.\d+)?)?)', after_part)
-                    ref_str = ref_match.group(1).strip() if ref_match else ''
-                    _store_candidate(candidates, clean_name, float(v_str), v_str, "Ratio" if 'ratio' in lower_tp else "", ref_str)
-                    continue
+                    # Same narrative-sentence guard Patterns B/D apply - this one was missing it,
+                    # which let explanatory comment lines (e.g. "...Ratio: Typically <1 in
+                    # healthy individuals...") through as if they were a test row.
+                    if not any(re.search(pat, norm_line, re.I) for pat in SENTENCE_VERB_PATTERNS):
+                        ref_match = re.search(r'([<>]?=?\s*\d+(?:\.\d+)?\s*(?:[-–]\s*\d+(?:\.\d+)?)?)', after_part)
+                        ref_str = ref_match.group(1).strip() if ref_match else ''
+                        _store_candidate(candidates, clean_name, float(v_str), v_str, "Ratio" if 'ratio' in lower_tp else "", ref_str)
+                        continue
 
     return extracted_date, list(candidates.values())
 
@@ -656,6 +708,20 @@ def _store_candidate(candidates: dict, raw_name: str, val_num: float, val_str: s
     clean_name = re.sub(r'[\:\,\-\–]+$', '', raw_name).strip()
     norm_key = re.sub(r'[^a-z0-9]', '', clean_name.lower())
     if not norm_key:
+        return
+
+    # Reject candidates that are structurally never a real biomarker name, regardless of
+    # which pattern produced them - this is the single choke point all patterns funnel through.
+    if clean_name.lower() in BLACKLIST_EXACT_NAMES:
+        return
+    if re.search(r'\d\s*:\s*\d', clean_name):
+        # A digit:digit ratio ("1:5738", "<1:10000") is a genetic-screening risk score, not a
+        # lab value - real biomarkers never format this way. Catches multi-column PDF layouts
+        # (e.g. an NIPT risk-summary table) that collapse two grid columns onto one text line.
+        return
+    if norm_key in UNIT_ONLY_NORMALIZED_KEYS:
+        # The "name" is just a unit token (e.g. "µg/dL") - a leftover fragment from a
+        # multi-column value row where the real name ended up on a different line/column.
         return
 
     # Standardize presentation of unit
@@ -709,8 +775,27 @@ def _store_candidate(candidates: dict, raw_name: str, val_num: float, val_str: s
 
         # 2. Word-boundary regex match if no exact match found
         if not dict_meta:
+            # A name containing a bare function word (article/preposition/conjunction) and not
+            # already recognized outright is a narrative fragment, not a biomarker - reject
+            # before attempting a fuzzy match instead of risking a wrong dictionary hit.
+            name_words = re.findall(r"[a-z0-9']+", clean_name.lower())
+            if any(w in STOPWORDS for w in name_words):
+                return
+
+            # A parenthetical is almost always an explanatory gloss of the core name (e.g.
+            # "Vitamin D3 (25 Hydroxy Cholecalciferal)"), not extra content that should count
+            # against the ratio check below - measure specificity against the name outside it.
+            core_norm_key = re.sub(r'[^a-z0-9]', '', re.sub(r'\([^)]*\)', '', clean_name).lower()) or norm_key
+
             for alias, meta in SORTED_BIOMARKER_ALIASES:
                 alias_norm = re.sub(r'[^a-z0-9]', '', alias)
+                # Require the alias to cover at least half of the candidate's core name, not
+                # just appear somewhere inside it - otherwise a short generic alias like
+                # "albumin" hijacks an unrelated compound name like "Microalbumin-Albumin" (a
+                # urine test, not the serum one), keeping the extracted unit/range under the
+                # wrong label.
+                if len(alias_norm) < 0.5 * len(core_norm_key):
+                    continue
                 if re.search(r'\b' + re.escape(alias) + r'\b', clean_name.lower()):
                     dict_meta = meta
                     display_name = meta['name']
@@ -719,6 +804,13 @@ def _store_candidate(candidates: dict, raw_name: str, val_num: float, val_str: s
                     if not unit and meta.get('unit'):
                         unit = meta['unit']
                     break
+
+    if is_qual and dict_meta and dict_meta.get('min') is not None and val_str.lower() in SEROLOGY_ONLY_TOKENS:
+        # A serology-style token ("Reactive", "Positive"...) resolved to an inherently numeric
+        # biomarker (has a min/max range, e.g. ESR in mm/hr) - a garbled cross-column match, not
+        # a real reading. Narrower than "no qualitative value on a numeric test" in general,
+        # since some numeric tests (pH, specific gravity) are legitimately reported either way.
+        return
 
     # Flag calculation
     if is_qual:
@@ -753,5 +845,9 @@ def _store_candidate(candidates: dict, raw_name: str, val_num: float, val_str: s
         candidates[store_key] = cand_data
     else:
         existing = candidates[store_key]
-        if (existing['value'] == 0.0 and val_num > 0.0) or (not existing['reference_range'] and ref_str):
+        # A bare number with no dash/comparator ("1.02") isn't a valid reference-range shape -
+        # never let it "enrich" an existing blank-ref entry, since that's exactly what a stray
+        # number leaking in from an adjacent PDF column looks like.
+        ref_looks_like_range = bool(re.search(r'[-–<>]', ref_str))
+        if (existing['value'] == 0.0 and val_num > 0.0) or (not existing['reference_range'] and ref_str and ref_looks_like_range):
             candidates[store_key] = cand_data
