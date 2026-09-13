@@ -28,3 +28,7 @@ class UpdateRecordPayload(BaseModel):
     value: float
     value_str: Optional[str] = None
     test_date: str
+
+class RenameTestPayload(BaseModel):
+    old_name: str
+    new_name: str

@@ -710,6 +710,26 @@ function renderDetailedChart(records, testName, unit) {
   });
 }
 
+async function renameCurrentTest() {
+  if (!currentDetailTestName) return;
+  const newName = prompt("Rename this test to:", currentDetailTestName);
+  if (!newName || !newName.trim() || newName.trim() === currentDetailTestName) return;
+
+  try {
+    const res = await fetch(`/api/profiles/${activeProfileId}/tests/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ old_name: currentDetailTestName, new_name: newName.trim() }),
+    });
+    if (!res.ok) throw new Error("Failed to rename test");
+    const data = await res.json();
+    loadDashboard(activeProfileId);
+    openTestDetailModal(data.new_name);
+  } catch (err) {
+    alert("Error renaming test: " + err.message);
+  }
+}
+
 async function deleteRecord(btn) {
   if (!confirm("Are you sure you want to delete this specific test reading?")) return;
   const recordId = btn.closest("tr").dataset.recordId;

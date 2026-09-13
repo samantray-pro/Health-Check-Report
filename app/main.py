@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import get_db, init_db, seed_sample_data_if_empty
-from app.models import ProfileCreate, ConfirmReportPayload, UpdateRecordPayload
+from app.models import ProfileCreate, ConfirmReportPayload, UpdateRecordPayload, RenameTestPayload
 from app.ocr_engine import extract_text_from_file
 from app.parser import parse_lab_data, BIOMARKER_DICTIONARY, get_test_category, get_test_panel, determine_clinical_flag, resolve_biomarker_meta
 from app import ai_router
@@ -339,6 +339,26 @@ def get_test_detail(profile_id: int, test_name: str = Query(...)):
             "test_name": test_name,
             "records": [dict(r) for r in records]
         }
+
+@app.post("/api/profiles/{profile_id}/tests/rename")
+def rename_test(profile_id: int, payload: RenameTestPayload):
+    """Renames every record of one test for a profile. Renaming to an existing test's name
+    merges the two on the dashboard, since cards are grouped by exact test_name."""
+    new_name = payload.new_name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="New name cannot be empty")
+
+    dict_meta = resolve_biomarker_meta(new_name)
+    category = dict_meta.get("category") if dict_meta else get_test_category(new_name)
+    panel = dict_meta.get("panel") if (dict_meta and "panel" in dict_meta) else get_test_panel(new_name, category)
+
+    with get_db() as db:
+        cur = db.execute(
+            "UPDATE test_records SET test_name = ?, category = ?, panel = ? WHERE profile_id = ? AND test_name = ?",
+            (new_name, category, panel, profile_id, payload.old_name)
+        )
+        db.commit()
+        return {"status": "success", "updated_records": cur.rowcount, "new_name": new_name}
 
 @app.put("/api/records/{record_id}")
 def update_record(record_id: int, payload: UpdateRecordPayload):

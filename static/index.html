@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Health Checkup Tracker | Local & Private</title>
-  <link rel="stylesheet" href="/css/style.css?v=2.7" />
+  <link rel="stylesheet" href="/css/style.css?v=2.8" />
   <!-- Chart.js for Longitudinal Medical Trend Visualization -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
@@ -268,7 +268,10 @@
     <div class="modal-box" style="max-width: 800px;">
       <div class="modal-header">
         <div>
-          <div class="modal-title" id="detail-test-name">Test Name</div>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <div class="modal-title" id="detail-test-name">Test Name</div>
+            <button class="btn btn-secondary btn-sm" onclick="renameCurrentTest()" title="Rename this test">✏️ Rename</button>
+          </div>
           <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;" id="detail-test-meta">Unit &amp; Reference</div>
         </div>
         <button class="btn-close" onclick="closeModal('test-detail-modal')">&times;</button>
@@ -472,6 +475,6 @@
     </div>
   </div>
 
-  <script src="/js/app.js?v=2.7"></script>
+  <script src="/js/app.js?v=2.8"></script>
 </body>
 </html>
