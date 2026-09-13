@@ -1,4 +1,5 @@
 import io
+import re
 import csv
 import socket
 from pathlib import Path
@@ -10,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import get_db, init_db, seed_sample_data_if_empty
 from app.models import ProfileCreate, ConfirmReportPayload
 from app.ocr_engine import extract_text_from_file
-from app.parser import parse_lab_data, BIOMARKER_DICTIONARY, get_test_category
+from app.parser import parse_lab_data, BIOMARKER_DICTIONARY, get_test_category, get_test_panel, determine_clinical_flag
 from app import ai_router
 
 app = FastAPI(title="Local Health Checkup Tracker", description="Privacy-focused, offline-first health checkup tracker")
@@ -28,6 +29,18 @@ app.include_router(ai_router.router, prefix="/api/ai", tags=["AI"])
 
 UPLOAD_DIR = Path("app/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR_RESOLVED = UPLOAD_DIR.resolve()
+
+def safe_upload_path(file_path: str) -> Path | None:
+    """Resolves a stored file_path and returns it only if it lives inside UPLOAD_DIR, else None."""
+    if not file_path:
+        return None
+    try:
+        resolved = Path(file_path).resolve()
+        resolved.relative_to(UPLOAD_DIR_RESOLVED)
+        return resolved
+    except (OSError, ValueError):
+        return None
 
 def get_lan_ip():
     """Detects the machine's local network IP address (e.g., 192.168.x.x)."""
@@ -81,13 +94,6 @@ def create_profile(profile: ProfileCreate):
         db.commit()
         return {"id": cur.lastrowid, "name": profile.name}
 
-@app.delete("/api/profiles/{profile_id}")
-def delete_profile(profile_id: int):
-    with get_db() as db:
-        db.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
-        db.commit()
-        return {"status": "success", "message": "Profile deleted"}
-
 # --- Biomarkers Dictionary Reference ---
 @app.get("/api/biomarkers")
 def get_biomarkers():
@@ -132,35 +138,86 @@ def confirm_records(profile_id: int, payload: ConfirmReportPayload):
     if not payload.records:
         raise HTTPException(status_code=400, detail="No test records provided to save")
 
+    safe_file_path = str(safe_upload_path(payload.file_path)) if payload.file_path else ""
+
     with get_db() as db:
+        # Calculate distinct test panels and total parameters count
+        distinct_panels = set()
+        for r in payload.records:
+            panel_val = r.panel or get_test_panel(r.test_name, r.category)
+            distinct_panels.add(panel_val)
+
+        panel_count = len(distinct_panels)
+        parameter_count = len(payload.records)
+
         # Record report entry
         file_type = "pdf" if payload.filename.lower().endswith(".pdf") else "image"
         cur = db.execute(
-            "INSERT INTO reports (profile_id, filename, file_path, file_type, report_date) VALUES (?, ?, ?, ?, ?)",
-            (profile_id, payload.filename or "Manual", payload.file_path or "", file_type, payload.test_date)
+            "INSERT INTO reports (profile_id, filename, file_path, file_type, report_date, panel_count, parameter_count) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (profile_id, payload.filename or "Manual", safe_file_path, file_type, payload.test_date, panel_count, parameter_count)
         )
         report_id = cur.lastrowid
 
+        sorted_aliases = sorted(BIOMARKER_DICTIONARY.items(), key=lambda x: len(x[0]), reverse=True)
         for r in payload.records:
+            dict_meta = None
+            norm_name = re.sub(r'[^a-z0-9]', '', r.test_name.lower())
+            for alias, meta in sorted_aliases:
+                alias_norm = re.sub(r'[^a-z0-9]', '', alias)
+                if norm_name == alias_norm or re.search(r'\b' + re.escape(alias) + r'\b', r.test_name.lower()):
+                    dict_meta = meta
+                    break
+
+            computed_flag = determine_clinical_flag(r.value, r.reference_range or "", dict_meta)
+            saved_flag = computed_flag if computed_flag in ("HIGH", "LOW", "NORMAL", "BORDERLINE") else (r.flag or "NORMAL")
+
+            assigned_category = r.category or (dict_meta.get("category") if dict_meta else get_test_category(r.test_name))
+            assigned_panel = r.panel or (dict_meta.get("panel") if (dict_meta and "panel" in dict_meta) else get_test_panel(r.test_name, assigned_category))
+
             db.execute("""
                 INSERT INTO test_records 
-                (profile_id, report_id, test_name, raw_test_name, value, value_str, unit, reference_range, flag, test_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (profile_id, report_id, test_name, raw_test_name, panel, category, value, value_str, unit, reference_range, flag, test_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 profile_id,
                 report_id,
                 r.test_name.strip(),
                 r.raw_test_name or r.test_name.strip(),
+                assigned_panel,
+                assigned_category,
                 r.value,
-                str(r.value),
+                r.value_str if r.value_str else str(r.value),
                 r.unit or "",
                 r.reference_range or "",
-                r.flag or "NORMAL",
+                saved_flag,
                 payload.test_date
             ))
         db.commit()
 
-    return {"status": "success", "saved_count": len(payload.records)}
+    return {
+        "status": "success",
+        "saved_count": len(payload.records),
+        "panel_count": panel_count,
+        "parameter_count": parameter_count
+    }
+
+# --- BI & Panel Analytics Endpoint ---
+@app.get("/api/profiles/{profile_id}/bi/panels")
+def get_profile_bi_panels(profile_id: int):
+    """Returns panel distribution and parameter metrics for BI reporting."""
+    with get_db() as db:
+        rows = db.execute("""
+            SELECT panel, category,
+                   COUNT(*) as total_readings,
+                   COUNT(DISTINCT test_name) as parameter_count,
+                   SUM(CASE WHEN flag IN ('HIGH', 'LOW', 'BORDERLINE', 'ABNORMAL') THEN 1 ELSE 0 END) as abnormal_count,
+                   MAX(test_date) as last_test_date
+            FROM test_records
+            WHERE profile_id = ?
+            GROUP BY panel
+            ORDER BY parameter_count DESC, panel ASC
+        """, (profile_id,)).fetchall()
+        return [dict(r) for r in rows]
 
 # --- Dashboard & Trend Analytics Endpoints ---
 @app.get("/api/profiles/{profile_id}/dashboard")
@@ -223,6 +280,7 @@ def get_profile_dashboard(profile_id: int):
                 "unit": latest["unit"] if latest else t["unit"],
                 "reference_range": latest["reference_range"] if latest else t["reference_range"],
                 "latest_value": latest["value"] if latest else None,
+                "latest_value_str": latest.get("value_str") if latest else None,
                 "latest_flag": latest["flag"] if latest else "NORMAL",
                 "latest_date": latest["test_date"] if latest else None,
                 "trend_direction": trend_direction,
@@ -293,6 +351,98 @@ def delete_record(record_id: int):
         db.execute("DELETE FROM test_records WHERE id = ?", (record_id,))
         db.commit()
         return {"status": "success"}
+
+# --- Checkups & Data Deletion Endpoints ---
+@app.get("/api/profiles/{profile_id}/checkups")
+def get_profile_checkups(profile_id: int):
+    """Returns checkup dates for a profile with record counts and attached report information."""
+    with get_db() as db:
+        checkups = db.execute("""
+            SELECT 
+                tr.test_date,
+                COUNT(tr.id) as records_count,
+                MAX(r.id) as report_id,
+                MAX(r.filename) as filename,
+                MAX(r.file_path) as file_path,
+                MAX(r.file_type) as file_type
+            FROM test_records tr
+            LEFT JOIN reports r ON tr.report_id = r.id
+            WHERE tr.profile_id = ?
+            GROUP BY tr.test_date
+            ORDER BY tr.test_date DESC
+        """, (profile_id,)).fetchall()
+
+        return [dict(c) for c in checkups]
+
+@app.delete("/api/profiles/{profile_id}/checkups/{test_date}")
+def delete_profile_checkup_date(profile_id: int, test_date: str):
+    """Deletes all test records and associated reports/files for a specific checkup date."""
+    with get_db() as db:
+        # Find distinct reports that originated from this checkup date
+        reports = db.execute("""
+            SELECT DISTINCT r.id, r.file_path 
+            FROM reports r
+            JOIN test_records tr ON tr.report_id = r.id
+            WHERE tr.profile_id = ? AND tr.test_date = ?
+        """, (profile_id, test_date)).fetchall()
+
+        cur = db.execute("DELETE FROM test_records WHERE profile_id = ? AND test_date = ?", (profile_id, test_date))
+        deleted_records = cur.rowcount
+
+        # Check if the report has any remaining records; if not, delete the report and physical file
+        for rep in reports:
+            rem = db.execute("SELECT COUNT(*) as cnt FROM test_records WHERE report_id = ?", (rep["id"],)).fetchone()
+            if rem["cnt"] == 0:
+                db.execute("DELETE FROM reports WHERE id = ?", (rep["id"],))
+                p = safe_upload_path(rep["file_path"])
+                if p and p.is_file():
+                    try:
+                        p.unlink()
+                    except OSError:
+                        pass
+
+        db.commit()
+        return {"status": "success", "deleted_records": deleted_records, "test_date": test_date}
+
+@app.delete("/api/profiles/{profile_id}/data")
+def delete_profile_all_data(profile_id: int):
+    """Deletes all test records, reports, and uploaded files for a profile (resets records to 0)."""
+    with get_db() as db:
+        reports = db.execute("SELECT id, file_path FROM reports WHERE profile_id = ?", (profile_id,)).fetchall()
+        for rep in reports:
+            p = safe_upload_path(rep["file_path"])
+            if p and p.is_file():
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+
+        cur = db.execute("DELETE FROM test_records WHERE profile_id = ?", (profile_id,))
+        deleted_records = cur.rowcount
+        db.execute("DELETE FROM reports WHERE profile_id = ?", (profile_id,))
+        db.commit()
+
+        return {"status": "success", "deleted_records": deleted_records, "message": "All data cleared for profile"}
+
+@app.delete("/api/profiles/{profile_id}")
+def delete_profile(profile_id: int):
+    """Deletes the profile and cascades to all its tests, reports, and files."""
+    with get_db() as db:
+        reports = db.execute("SELECT id, file_path FROM reports WHERE profile_id = ?", (profile_id,)).fetchall()
+        for rep in reports:
+            p = safe_upload_path(rep["file_path"])
+            if p and p.is_file():
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+
+        db.execute("DELETE FROM test_records WHERE profile_id = ?", (profile_id,))
+        db.execute("DELETE FROM reports WHERE profile_id = ?", (profile_id,))
+        db.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
+        db.commit()
+
+        return {"status": "success", "message": f"Profile {profile_id} and all associated data deleted"}
 
 # --- Export to CSV Endpoint ---
 @app.get("/api/profiles/{profile_id}/export-csv")

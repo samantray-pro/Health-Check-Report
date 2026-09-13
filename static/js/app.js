@@ -30,6 +30,9 @@ const CATEGORY_ICONS = {
   "Iron Studies": "🧲",
   "Cardiac & Inflammation": "❤️‍🔥",
   "Hormones & Immunology": "🛡️",
+  "Coagulation & Hemostasis": "🩸",
+  "Blood Smear & Morphology": "🔬",
+  "Urine Routine Examination": "🧪",
   "General / Other": "📋"
 };
 
@@ -391,7 +394,7 @@ function applyFiltersAndRender() {
         .map(
           (h) => `
           <div class="history-chip">
-            <span class="chip-val">${h.value}</span>
+            <span class="chip-val">${escapeHtml(h.value_str || String(h.value))}</span>
             <span class="chip-date">${formatShortDate(h.test_date)}</span>
           </div>
         `
@@ -418,7 +421,7 @@ function applyFiltersAndRender() {
         </div>
 
         <div class="linear-col-reading">
-          <div class="linear-reading-val">${t.latest_value !== null ? t.latest_value : "--"}</div>
+          <div class="linear-reading-val">${escapeHtml(t.latest_value_str || (t.latest_value !== null ? String(t.latest_value) : "--"))}</div>
           <div style="display: flex; flex-direction: column; gap: 0.2rem;">
             <span class="pill ${pillClass}">${t.latest_flag}</span>
             <span class="reading-trend-badge ${trendClass}">${trendText}</span>
@@ -463,7 +466,7 @@ function applyFiltersAndRender() {
           </div>
 
           <div class="reading-showcase">
-            <div class="reading-val">${t.latest_value !== null ? t.latest_value : "--"}</div>
+            <div class="reading-val">${escapeHtml(t.latest_value_str || (t.latest_value !== null ? String(t.latest_value) : "--"))}</div>
             <div class="reading-trend-badge ${trendClass}">${trendText}</div>
           </div>
 
@@ -623,7 +626,7 @@ async function openTestDetailModal(testName) {
         const tr = document.createElement("tr");
         tr.innerHTML = `
         <td><strong>${formatDate(r.test_date)}</strong></td>
-        <td><span style="font-size: 1.1rem; font-weight:700;">${r.value}</span> ${unit}</td>
+        <td><span style="font-size: 1.1rem; font-weight:700;">${escapeHtml(r.value_str || String(r.value))}</span> ${unit}</td>
         <td>${changeText}</td>
         <td>${flagPill}</td>
         <td>
@@ -763,27 +766,64 @@ function showVerificationStep(payload) {
 
   const tests = payload.detected_tests || [];
   if (tests.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:1.5rem; color:#9ca3af;">No standard tests automatically detected. You can add tests manually below.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:1.5rem; color:#9ca3af;">No standard tests automatically detected. You can add tests manually below.</td></tr>`;
   } else {
-    tests.forEach((t, i) => {
-      addVerificationRow(t.test_name, t.value, t.unit, t.reference_range, t.flag);
+    tests.forEach((t) => {
+      addVerificationRow(t.test_name, t.value, t.unit, t.reference_range, t.flag, t.value_str, t.panel, t.category);
     });
   }
+
+  updateVerificationStats();
 }
 
-function addVerificationRow(name = "", val = "", unit = "", ref = "", flag = "NORMAL") {
+function addVerificationRow(name = "", val = "", unit = "", ref = "", flag = "NORMAL", valStr = "", panel = "", category = "") {
   const tbody = document.getElementById("ocr-verification-body");
   const tr = document.createElement("tr");
+  tr.dataset.flag = flag || "NORMAL";
+  tr.dataset.category = category || "";
+  const displayPanel = panel || "General / Other";
+
   tr.innerHTML = `
-    <td><input type="text" class="table-input row-name" value="${escapeHtml(name)}" placeholder="Test Name" /></td>
-    <td><input type="number" step="any" class="table-input row-value" value="${val}" placeholder="Value" style="width:90px;" /></td>
+    <td><input type="text" class="table-input row-name" value="${escapeHtml(name)}" placeholder="Test Name" oninput="updateVerificationStats()" /></td>
+    <td><input type="text" class="table-input row-panel" value="${escapeHtml(displayPanel)}" placeholder="Panel" style="width:160px;" oninput="updateVerificationStats()" /></td>
+    <td><input type="text" class="table-input row-value" value="${escapeHtml(String(valStr || val))}" placeholder="Value" style="width:110px;" /></td>
     <td><input type="text" class="table-input row-unit" value="${escapeHtml(unit)}" placeholder="Unit" style="width:80px;" /></td>
     <td><input type="text" class="table-input row-ref" value="${escapeHtml(ref)}" placeholder="Ref Range" /></td>
     <td style="text-align:center;">
-      <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('tr').remove()" title="Remove row">✕</button>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="removeVerificationRow(this)" title="Remove row">✕</button>
     </td>
   `;
   tbody.appendChild(tr);
+  updateVerificationStats();
+}
+
+function removeVerificationRow(btn) {
+  const tr = btn.closest("tr");
+  if (tr) {
+    tr.remove();
+    updateVerificationStats();
+  }
+}
+
+function updateVerificationStats() {
+  const rows = document.querySelectorAll("#ocr-verification-body tr");
+  const distinctPanels = new Set();
+  let paramCount = 0;
+
+  rows.forEach((tr) => {
+    const nameInput = tr.querySelector(".row-name");
+    const panelInput = tr.querySelector(".row-panel");
+    if (nameInput && nameInput.value.trim() !== "") {
+      paramCount++;
+      const panelName = panelInput && panelInput.value.trim() ? panelInput.value.trim() : "General / Other";
+      distinctPanels.add(panelName);
+    }
+  });
+
+  const panelCountEl = document.getElementById("ocr-panel-count");
+  const paramCountEl = document.getElementById("ocr-param-count");
+  if (panelCountEl) panelCountEl.textContent = distinctPanels.size;
+  if (paramCountEl) paramCountEl.textContent = paramCount;
 }
 
 async function confirmAndSaveReport() {
@@ -800,21 +840,27 @@ async function confirmAndSaveReport() {
 
   rows.forEach((tr) => {
     const nameEl = tr.querySelector(".row-name");
+    const panelEl = tr.querySelector(".row-panel");
     const valEl = tr.querySelector(".row-value");
     const unitEl = tr.querySelector(".row-unit");
     const refEl = tr.querySelector(".row-ref");
 
     if (nameEl && valEl && valEl.value.trim() !== "") {
-      const val = parseFloat(valEl.value);
-      if (!isNaN(val)) {
-        records.push({
-          test_name: nameEl.value.trim(),
-          value: val,
-          unit: unitEl ? unitEl.value.trim() : "",
-          reference_range: refEl ? refEl.value.trim() : "",
-          flag: "NORMAL",
-        });
+      const rawVal = valEl.value.trim();
+      let numVal = parseFloat(rawVal.replace(/[^0-9.-]/g, ""));
+      if (isNaN(numVal)) {
+        numVal = 0.0;
       }
+      records.push({
+        test_name: nameEl.value.trim(),
+        panel: panelEl ? panelEl.value.trim() : "General / Other",
+        category: tr.dataset.category || "",
+        value: numVal,
+        value_str: rawVal,
+        unit: unitEl ? unitEl.value.trim() : "",
+        reference_range: refEl ? refEl.value.trim() : "",
+        flag: tr.dataset.flag || "NORMAL",
+      });
     }
   });
 
@@ -1238,4 +1284,140 @@ async function sendChatMessage() {
     input.focus();
   }
 }
+
+// --- Checkups & Data Management ---
+async function openManageRecordsModal() {
+  if (!activeProfileId) return;
+  const profile = currentProfiles.find((p) => p.id === activeProfileId);
+  const name = profile ? profile.name : "Active Profile";
+  const subEl = document.getElementById("manage-records-subtitle");
+  if (subEl) {
+    subEl.textContent = `Review checkup history and manage data for ${name}`;
+  }
+  openModal("manage-records-modal");
+  await loadProfileCheckups();
+}
+
+async function loadProfileCheckups() {
+  const container = document.getElementById("checkups-list-container");
+  if (!container) return;
+  container.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-muted);">Loading checkups...</div>';
+
+  try {
+    const res = await fetch(`/api/profiles/${activeProfileId}/checkups`);
+    if (!res.ok) throw new Error("Failed to load checkups");
+    const checkups = await res.json();
+
+    if (!checkups || checkups.length === 0) {
+      container.innerHTML = `
+        <div style="text-align: center; padding: 2rem; background: var(--bg-card); border-radius: var(--radius-md); border: 1px dashed var(--border-color); color: var(--text-muted);">
+          No medical checkup records found for this profile.
+        </div>`;
+      return;
+    }
+
+    let html = `<div style="display: flex; flex-direction: column; gap: 0.75rem;">`;
+
+    checkups.forEach((c) => {
+      const formattedDate = new Date(c.test_date + 'T00:00:00').toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+      const fileLabel = c.filename ? `📄 ${escapeHtml(c.filename)}` : "Manual Entry";
+
+      html += `
+        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-card); padding: 0.85rem 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); gap: 1rem; flex-wrap: wrap;">
+          <div>
+            <div style="font-weight: 600; font-size: 0.95rem; color: var(--text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <span>📅 ${formattedDate}</span>
+              <span style="font-size: 0.75rem; background: var(--primary-light); color: var(--primary); padding: 0.15rem 0.5rem; border-radius: var(--radius-sm); font-weight: 600;">
+                ${c.records_count} tests
+              </span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">
+              Source: ${fileLabel}
+            </div>
+          </div>
+          <button type="button" class="btn btn-danger-outline btn-sm" onclick="deleteCheckupDate('${c.test_date}')" title="Delete all tests recorded on this date">
+            🗑️ Delete Checkup
+          </button>
+        </div>
+      `;
+    });
+
+    html += `</div>`;
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = `<div style="color: #ef4444; padding: 1rem;">Failed to load checkup history: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function deleteCheckupDate(testDate) {
+  const formattedDate = new Date(testDate + 'T00:00:00').toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  if (!confirm(`Are you sure you want to delete all medical records and reports for ${formattedDate}? This action cannot be undone.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/profiles/${activeProfileId}/checkups/${testDate}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Failed to delete checkup records");
+    
+    await loadProfileCheckups();
+    loadDashboard(activeProfileId);
+  } catch (err) {
+    alert("Error deleting checkup: " + err.message);
+  }
+}
+
+async function clearProfileData() {
+  const profile = currentProfiles.find((p) => p.id === activeProfileId);
+  const name = profile ? profile.name : "this profile";
+
+  if (!confirm(`⚠️ PERMANENT ACTION:\nAre you sure you want to delete ALL medical records and reports for ${name}?\n\nThe profile persona will remain, but all test history will be cleared to 0.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/profiles/${activeProfileId}/data`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Failed to clear profile data");
+
+    closeModal("manage-records-modal");
+    loadDashboard(activeProfileId);
+    alert(`All medical records for ${name} have been cleared.`);
+  } catch (err) {
+    alert("Error clearing data: " + err.message);
+  }
+}
+
+async function deleteCurrentProfile() {
+  const profile = currentProfiles.find((p) => p.id === activeProfileId);
+  const name = profile ? profile.name : "this profile";
+
+  if (!confirm(`🚨 DANGER:\nAre you sure you want to completely DELETE profile "${name}" and all its historical lab records?\n\nThis cannot be undone.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/profiles/${activeProfileId}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Failed to delete profile");
+
+    closeModal("manage-records-modal");
+    activeProfileId = null;
+    await loadProfiles();
+  } catch (err) {
+    alert("Error deleting profile: " + err.message);
+  }
+}
+
 

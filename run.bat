@@ -1,5 +1,5 @@
 @echo off
-title Health Checkup Tracker (Local & Private)
+title Health Checkup Tracker (Local and Private)
 echo =======================================================
 echo     HEALTH CHECKUP TRACKER - LOCAL PRIVACY EDITION
 echo =======================================================

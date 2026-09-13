@@ -10,7 +10,10 @@ class ProfileCreate(BaseModel):
 class TestRecordItem(BaseModel):
     test_name: str
     raw_test_name: Optional[str] = None
+    panel: Optional[str] = None
+    category: Optional[str] = None
     value: float
+    value_str: Optional[str] = None
     unit: Optional[str] = ""
     reference_range: Optional[str] = ""
     flag: Optional[str] = "NORMAL"

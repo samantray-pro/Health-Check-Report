@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Health Checkup Tracker | Local & Private</title>
-  <link rel="stylesheet" href="/css/style.css?v=2.3" />
+  <link rel="stylesheet" href="/css/style.css?v=2.6" />
   <!-- Chart.js for Longitudinal Medical Trend Visualization -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
@@ -71,6 +71,9 @@
           </button>
           <button class="btn btn-secondary" onclick="exportActiveProfileCsv()" title="Download entire history as CSV">
             📥 Export to CSV
+          </button>
+          <button class="btn btn-secondary" onclick="openManageRecordsModal()" title="View checkup history, delete dates, or clear data">
+            🗓️ Manage Records
           </button>
         </div>
       </section>
@@ -197,13 +200,31 @@
 
       <!-- Step 2: Verification & Review Drawer -->
       <div id="ocr-step-verify" style="display: none;">
-        <div style="background: rgba(2, 132, 199, 0.1); border: 1px solid rgba(2, 132, 199, 0.3); padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+        <div style="background: rgba(2, 132, 199, 0.1); border: 1px solid rgba(2, 132, 199, 0.3); padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
           <div>
             <div style="font-size: 0.8rem; color: var(--text-muted);">Document: <strong id="ocr-filename" style="color:#fff;">Report.pdf</strong></div>
           </div>
           <div style="display: flex; align-items: center; gap: 0.5rem;">
             <label style="font-size: 0.8rem; color: #cbd5e1; font-weight: 600;">Test Date:</label>
             <input type="date" id="ocr-test-date" class="table-input" style="width: 140px;" />
+          </div>
+        </div>
+
+        <!-- Real-time Extracted Test Panels and Parameters Metrics Bar -->
+        <div class="review-stats-bar">
+          <div class="review-stat-card">
+            <span class="review-stat-icon">📋</span>
+            <div>
+              <div class="review-stat-label">No. of Test Panels</div>
+              <div class="review-stat-value"><span id="ocr-panel-count">0</span> <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-muted);">Panels</span></div>
+            </div>
+          </div>
+          <div class="review-stat-card">
+            <span class="review-stat-icon">🔬</span>
+            <div>
+              <div class="review-stat-label">Total Parameters</div>
+              <div class="review-stat-value"><span id="ocr-param-count">0</span> <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-muted);">Tests</span></div>
+            </div>
           </div>
         </div>
 
@@ -216,6 +237,7 @@
             <thead>
               <tr>
                 <th>Test Name</th>
+                <th style="width: 170px;">Panel</th>
                 <th>Value</th>
                 <th>Unit</th>
                 <th>Reference</th>
@@ -404,6 +426,52 @@
     </div>
   </div>
 
-  <script src="/js/app.js?v=2.3"></script>
+  <!-- MODAL 4: Manage Records & Checkups Modal -->
+  <div class="modal-overlay" id="manage-records-modal">
+    <div class="modal-box" style="max-width: 680px;">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Manage Medical Records</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;" id="manage-records-subtitle">Review checkup history and manage data for this profile</div>
+        </div>
+        <button class="btn-close" onclick="closeModal('manage-records-modal')">&times;</button>
+      </div>
+
+      <div style="padding: 1.25rem 1.5rem; max-height: 70vh; overflow-y: auto;">
+        <!-- Date-Wise Checkup History -->
+        <div style="font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text-main); display: flex; align-items: center; gap: 0.5rem;">
+          <span>🗓️</span> Checkup History by Date
+        </div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+          Delete all tests and attached lab reports for a specific checkup date:
+        </p>
+
+        <div id="checkups-list-container" style="margin-bottom: 2rem;">
+          <div style="text-align: center; padding: 2rem; color: var(--text-muted);">Loading checkups...</div>
+        </div>
+
+        <!-- Danger Zone: Full Profile Data Deletion -->
+        <div style="border-top: 1px solid var(--border-color); padding-top: 1.5rem; margin-top: 1rem;">
+          <div style="font-size: 1rem; font-weight: 600; color: #ef4444; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span>⚠️</span> Danger Zone
+          </div>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+            Permanently clear all historical test records or completely remove this profile:
+          </p>
+
+          <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+            <button type="button" class="btn btn-danger-outline" onclick="clearProfileData()" style="flex: 1; min-width: 200px;">
+              🗑️ Clear All Test Records
+            </button>
+            <button type="button" class="btn btn-danger" onclick="deleteCurrentProfile()" style="flex: 1; min-width: 200px;">
+              ❌ Delete Entire Profile
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js?v=2.6"></script>
 </body>
 </html>
