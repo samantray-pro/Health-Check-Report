@@ -109,18 +109,17 @@ def backfill_panels_and_categories():
 def recalculate_all_flags():
     """Recalculates clinical flags (HIGH, LOW, NORMAL) for all existing test records using reference ranges and biomarker dictionary."""
     import re
-    from app.parser import determine_clinical_flag, BIOMARKER_DICTIONARY
+    from app.parser import determine_clinical_flag, SORTED_BIOMARKER_ALIASES
 
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        sorted_aliases = sorted(BIOMARKER_DICTIONARY.items(), key=lambda x: len(x[0]), reverse=True)
         records = cur.execute("SELECT id, test_name, value, reference_range, flag FROM test_records").fetchall()
         for r in records:
             dict_meta = None
             norm_name = re.sub(r'[^a-z0-9]', '', r["test_name"].lower())
-            for alias, meta in sorted_aliases:
+            for alias, meta in SORTED_BIOMARKER_ALIASES:
                 alias_norm = re.sub(r'[^a-z0-9]', '', alias)
                 if norm_name == alias_norm or re.search(r'\b' + re.escape(alias) + r'\b', r["test_name"].lower()):
                     dict_meta = meta

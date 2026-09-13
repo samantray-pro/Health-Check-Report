@@ -2,6 +2,7 @@ import io
 import re
 import csv
 import socket
+import logging
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
@@ -11,16 +12,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import get_db, init_db, seed_sample_data_if_empty
 from app.models import ProfileCreate, ConfirmReportPayload
 from app.ocr_engine import extract_text_from_file
-from app.parser import parse_lab_data, BIOMARKER_DICTIONARY, get_test_category, get_test_panel, determine_clinical_flag
+from app.parser import parse_lab_data, BIOMARKER_DICTIONARY, SORTED_BIOMARKER_ALIASES, get_test_category, get_test_panel, determine_clinical_flag
 from app import ai_router
+
+logger = logging.getLogger("health_tracker")
 
 app = FastAPI(title="Local Health Checkup Tracker", description="Privacy-focused, offline-first health checkup tracker")
 
-# Enable CORS for local network flexibility
+# Enable CORS for local network flexibility (no cookies/auth used, so no credentials needed)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -158,11 +161,10 @@ def confirm_records(profile_id: int, payload: ConfirmReportPayload):
         )
         report_id = cur.lastrowid
 
-        sorted_aliases = sorted(BIOMARKER_DICTIONARY.items(), key=lambda x: len(x[0]), reverse=True)
         for r in payload.records:
             dict_meta = None
             norm_name = re.sub(r'[^a-z0-9]', '', r.test_name.lower())
-            for alias, meta in sorted_aliases:
+            for alias, meta in SORTED_BIOMARKER_ALIASES:
                 alias_norm = re.sub(r'[^a-z0-9]', '', alias)
                 if norm_name == alias_norm or re.search(r'\b' + re.escape(alias) + r'\b', r.test_name.lower()):
                     dict_meta = meta
@@ -398,8 +400,8 @@ def delete_profile_checkup_date(profile_id: int, test_date: str):
                 if p and p.is_file():
                     try:
                         p.unlink()
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        logger.warning("Failed to unlink uploaded file %s: %s", p, e)
 
         db.commit()
         return {"status": "success", "deleted_records": deleted_records, "test_date": test_date}
@@ -414,8 +416,8 @@ def delete_profile_all_data(profile_id: int):
             if p and p.is_file():
                 try:
                     p.unlink()
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.warning("Failed to unlink uploaded file %s: %s", p, e)
 
         cur = db.execute("DELETE FROM test_records WHERE profile_id = ?", (profile_id,))
         deleted_records = cur.rowcount
@@ -434,8 +436,8 @@ def delete_profile(profile_id: int):
             if p and p.is_file():
                 try:
                     p.unlink()
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.warning("Failed to unlink uploaded file %s: %s", p, e)
 
         db.execute("DELETE FROM test_records WHERE profile_id = ?", (profile_id,))
         db.execute("DELETE FROM reports WHERE profile_id = ?", (profile_id,))

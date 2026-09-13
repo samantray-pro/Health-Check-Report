@@ -201,6 +201,10 @@ BIOMARKER_DICTIONARY = {
     "bacteria": {"name": "Urine Bacteria", "category": "Urine Routine Examination", "unit": "/HPF", "ref": "Absent", "min": None, "max": None},
 }
 
+# Aliases sorted longest-first for word-boundary matching, precomputed once since the
+# dictionary above is static (was being re-sorted on every parsed biomarker).
+SORTED_BIOMARKER_ALIASES = sorted(BIOMARKER_DICTIONARY.items(), key=lambda x: len(x[0]), reverse=True)
+
 # Standard qualitative clinical result tokens
 QUAL_TOKENS = [
     "Non Reactive", "Non-Reactive", "Reactive",
@@ -705,8 +709,7 @@ def _store_candidate(candidates: dict, raw_name: str, val_num: float, val_str: s
 
         # 2. Word-boundary regex match if no exact match found
         if not dict_meta:
-            sorted_aliases = sorted(BIOMARKER_DICTIONARY.items(), key=lambda x: len(x[0]), reverse=True)
-            for alias, meta in sorted_aliases:
+            for alias, meta in SORTED_BIOMARKER_ALIASES:
                 alias_norm = re.sub(r'[^a-z0-9]', '', alias)
                 if re.search(r'\b' + re.escape(alias) + r'\b', clean_name.lower()):
                     dict_meta = meta

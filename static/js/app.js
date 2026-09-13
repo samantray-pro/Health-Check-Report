@@ -1339,7 +1339,7 @@ async function loadProfileCheckups() {
               Source: ${fileLabel}
             </div>
           </div>
-          <button type="button" class="btn btn-danger-outline btn-sm" onclick="deleteCheckupDate('${c.test_date}')" title="Delete all tests recorded on this date">
+          <button type="button" class="btn btn-danger-outline btn-sm" data-test-date="${escapeHtml(c.test_date)}" onclick="deleteCheckupDate(this.dataset.testDate)" title="Delete all tests recorded on this date">
             🗑️ Delete Checkup
           </button>
         </div>
@@ -1364,7 +1364,7 @@ async function deleteCheckupDate(testDate) {
   }
 
   try {
-    const res = await fetch(`/api/profiles/${activeProfileId}/checkups/${testDate}`, {
+    const res = await fetch(`/api/profiles/${activeProfileId}/checkups/${encodeURIComponent(testDate)}`, {
       method: "DELETE",
     });
     if (!res.ok) throw new Error("Failed to delete checkup records");
